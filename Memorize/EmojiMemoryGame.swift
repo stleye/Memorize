@@ -1,6 +1,6 @@
 //
 //  EmojiMemoryView.swift
-//  SwiftUILecture4
+//  SwiftUILecture5
 //
 //  Created by Sebastian Tleye on 05/12/2022.
 //
@@ -8,22 +8,24 @@
 import Foundation
 
 class EmojiMemoryGame: ObservableObject {
-    
-    static let emojis = ["⛸", "🧗‍♀️", "🎗", "🚆", "🚌", "📺", "🎀", "✳️", "🔫", "🥊", "🔪", "🥳", "🥶", "🧠"]
+
+    typealias Card = MemoryGame<String>.Card
+
+    private static let emojis = ["⛸", "🧗‍♀️", "🎗", "🚆", "🚌", "📺", "🎀", "✳️", "🔫", "🥊", "🔪", "🥳", "🥶", "🧠"]
 
     static func createMemoryGame() -> MemoryGame<String> {
-        MemoryGame(numberOfPairsOfCards: 3) { pairIndex in
+        MemoryGame(numberOfPairsOfCards: 10) { pairIndex in
             emojis[pairIndex]
         }
     }
 
     @Published private(set) var model = createMemoryGame()
-    
-    func choose(_ card: MemoryGame<String>.Card) {
+
+    func choose(_ card: Card) {
         model.choose(card)
     }
 
-    var cards: [MemoryGame<String>.Card] {
+    var cards: [Card] {
         model.cards
     }
 
