@@ -204,4 +204,34 @@ You can also use `@ViewBuilder` to mark a parameter of a function or an init.
 That argument's type must be "a function that returns a View".
 ZStack, HStack, VStack, ForEach, LazyVGrid, etc. all do this (their content: parameter).
 
+#### Shape
+
+Shape is a protocol that inherits from View.
+In other words, all Shapes are also Views.
+Examples of Shapes already om SwiftUI: RoundedRectangle, Circle, Capsule, etc
+
+By default, Shapes draw themselves by filling with the current foreground color.
+But they can be changed with .stroke() and .fill().
+They return a View that draws the Shape in the specified way (by stroking or filling)
+
+The arguments to stroke and fill are pretty interesting.
+`func fill<S>(_ whatToFillWith: S) -> some View where S: ShapeStyle`
+This is a generic function (similar to, but different than, a generic type).
+`S` is a don't care (but since there's a where, it becomes a "care a little bit")
+`S` can be anything that implements the `ShapeStyle` protocol
+The `ShapeStyle` protocol turns a `Shape` into a `View` by apply some styling to it.
+Examples of such things: Color, ImagePaint, AngularGradient, LinearGradient.
+
+But what if we want to create our own Shape?
+
+The Shape protocol (by extension) implements View's body var for us.
+But it introduces its own func that we are required to implement...
+```Swift
+func path(in rect: CGRect) -> Path {
+    return a Path
+}
+```
+In here we will create and return a Path that draws anything we want.
+`Path` has a ton of functions to support drawing (check out its documentation).
+It can add lines, arcs, bezier curves, etc. together to make a shape.
 
