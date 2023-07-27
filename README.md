@@ -235,3 +235,302 @@ In here we will create and return a Path that draws anything we want.
 `Path` has a ton of functions to support drawing (check out its documentation).
 It can add lines, arcs, bezier curves, etc. together to make a shape.
 
+#### ViewModifier
+
+All those little functions that modified our Views (like aspectRatio and padding)?
+They are (likely) turning right around and calling a function in View called `modifier`
+
+e.g. .aspectRatio(2/3) is likely something like `.modifier(AspectModifier(2/3))`
+`AspectModifier` can be anything that conforms to `ViewModifier` protocol...
+
+The `ViewModifier` protocol has one function in it.
+This function's only job is to create a new View based on the thing passed to it.
+Conceptually, this protocol is sort of like this...
+
+```Swift
+protocol ViewModifier {
+    typealias Content //the type of the View passed to body(content:)
+    func body(content: Content) -> some View {
+        return some View that almost certainly contains the View content
+    }
+}
+```
+
+When we call `.modifier` on `a View`, the `Content` passed to this function is `that View.`
+
+ViewModifier code looks a lot like View code (`func body(content:)` instead of `var body`).
+That's because `ViewModifier`s are Views.
+And writing the code for one is almost identical.
+
+There is a special ViewModifier, `GeometryEffects`, for building geometry modifiers.
+
+Let's say we wanted to create a modifier that would "card-ify" another View.
+In other words, it would take that View and put it on a card like in the Memorize game.
+It would work with any View whatsoever (not just our Text("X")).
+What would such a modifier look like?
+
+##### Cardify ViewModifier
+
+```Swift
+Text("X").modifier(Cardify(isFaceUp: true)) //eventually .cardify(isFaceUp: true)
+struct Cardify: ViewModifier {
+    var isFaceUp: Bool
+    func body(content: Content) -> some View {
+        ZStack {
+            if isFaceUp {
+                RoundedRectangle(cornerRadius: 10).fill(Color.white)
+                RoundedRectangle(cornerRadius: 10).stroke()
+                content
+            } else {
+                RoundedRectangle(cornerRadius: 10)
+            }
+        }
+    }
+}
+```
+
+How do we get from ...
+`Text("X").modifier(Cardify(isFaceUp: true))`
+to...
+`Text("X").cardify(isFaceUp: true)`
+
+Easy...
+
+```Swift
+extension View {
+    func cardify(isFaceUp: Bool) -> some View {
+        return self.modifier(Cardify(isFaceUp: isFaceUp))
+    }
+}
+```
+
+#### Animation
+
+One way to do animation is by animating a `Shape`
+The other way to do animation is to animate Views via their ViewModifiers.
+
+##### Important takeaways about Animation
+- Only changes can be animated. Changes to what?
+ViewModifier arguments
+Shapes
+The "existence" (or not) of a View in the UI
+
+- Animation is showing the user changes that have already happened (i.e. the recent past)
+- ViewModifiers are the primary "change agents" in the UI
+A change to a ViewModifier's arguments has to happen after the View is initially put in the UI.
+In other words, only changes in a ViewModifier's arguments since it joined the UI are animated.
+Not all ViewModifier arguments are animatable (e.g. font's are not), but most are.
+When a View arrives or departs, the entire thing is animated as a unit.
+A view coming on-screen is only animated if it's joining a container that is already in the UI.
+A view going off-screen is only animated if it's leaving a container that is staying in the UI.
+ForEach and if-else in ViewBuilders are common ways to make Views come and go.
+
+##### How do we make an animation "go"?
+
+Three ways
+- Implicitly (automatically), by using the view modifier `.animation(Animation)`
+- Explicitly, by wrapping `withAnimation(Animation) { }` around code that might change things.
+- By making Views be included or excluded from the UI.
+
+All of the above only cause animations to "go" if the View is already part of the UI (or if the View is joining a container that is already part of the UI)
+
+###### Implicit Animation
+"Automatic animation" Essentially marks a View so that ...
+All ViewModifier arguments that precede the `animation` modifier will always be animated.
+The changes are animated with the duration and "curve" we specify 
+We simply add `.animation(Animation)` view modifier to the View we want to auto-animate.
+```Swift
+Text("X")
+    .opacity(scary ? 1 : 0)
+    .rotationEffect(Angle.degrees(upsideDown ? 180 : 0))
+    .animation(Animation.easeInOut)
+```
+Now whenever `scary` or `upsideDown` changes, the opacity/rotation will be animated.
+All changes to arguments are animatable view modifiers preceding `.animation` are animated.
+Without `.animation()`, the changes to opacity/rotation would appear instantly on screen.
+
+`Warning!` The .animation modifier does not work how we might thing on a container.
+A container just propagates the .animation modifier to all the Views it contains.
+In other words, .animation does not work like .padding, it works more like .font.
+
+The argument to .animation() is an `Animation` struct.
+It lets us control things about an animation ...
+Its `duration`.
+Whether to `delay` a little bit before starting it.
+Whether it should `repeat` (a certain number of times or even `repeatForever`).
+Its "curve"...
+
+###### Animation Curve
+The kind of animation controls the rate at which the animation "plays out" (it's "curve")...
+`.linear` This means exactly what it sounds like: consistent rate throughout.
+`.easeInOut` Starts out the animation slowly, picks up speed, then slows at the end.
+`.spring` Provides "soft landing" (a "bounce") for the end of the animation.
+
+###### Implicit vs. Explicit Animation
+These "automatic" implicit animations are usually not the primary source of animation behavior.
+They are mostly used on "leaf" (i.e. non-container, aka "Lego brick") Views.
+Or, more generally, on Views that are typically working independently of other Views.
+
+A likely more common cause of animations is a change in our Model.
+Or, more generally, changes in response to some user action.
+For these changes, we want a whole bunch of Views to animate together.
+For that, we use Explicit Animation...
+
+###### Explicit Animation
+
+Explicit Animations create an animation transaction during which...
+All eligible changes made as a result of executing a block of code will be animated together.
+
+We supply the Animation (duration, curve, etc) to use and the block of code.
+```Swift
+withAnimation(.linear(duration: 2)) {
+    // do something that will cause ViewModifier/Shape arguments to change somewhere
+}
+```
+Explicit Animations are almost always wrapped around calls to `ViewModel Intent functions`.
+But they are also wrapped around things that only change the UI like "entering editing mode"
+It's fairy rare for code that handles a user gesture to not be wrapped in a withAnimation.
+
+`Explicit animations do not override an implicit animation.`
+
+###### Transitions
+
+Transitions specify how to animate the arrival/departure of Views
+Only works for Views that are inside Containers That are Already On-Screen
+
+Under the covers, a transition os nothing more than a pair of ViewModifiers.
+One of the modifiers is the "before" modification of the View that's on the move.
+The other modifier is the "after" modification of the View that's on the move.
+This a transition is just a version of a "changes in arguments to ViewModifiers" animation.
+
+An asymmetric transition has 2 pairs of ViewModifiers.
+One pair for when the View appears (insertion)
+And another pair for when the View disappears (removal)
+Example: a View fades in when it appears, but then flies across the creen when it disappears.
+Mostly we use "pre-canned" transitions (opacity, scaling, moving across the screen).
+The are static vars/funcs on the `AnyTransition` struct.
+
+All the transitions API is "type erased"
+We use the struct `AnyTransition` which erases type info for the underlying ViewModifiers
+This makes it a lot easier to work with transitions
+
+For example, here are some of the built-in transitions...
+`AnyTransition.opacity` (uses .opacity modifier to fade the View in and out)
+`AnyTransition.scale` (uses .frame modifier to expand/shrink the View as it comes and goes)
+`AnyTransition.offset(CGSize)` (use .offset modifier to move the View as it comes and goes)
+`AnyTransition.modifier(active:identity:)` (you provide the two ViewModifiers to use)
+
+How do we specify which kind of transition to use when a View arrives/departs?
+
+Using `.transition()`. Example using two built-in transitions, `.scale` and `.identity`...
+
+```Swift
+ZStack {
+    if isFaceUp {
+        RoundedRectangle(cornerRadius: 10).stroke()
+        Text("X").transition(AnyTransition.scale)
+    } else {
+        RoundedRectangle(cornerRadius: 10).transition(AnyTransition.identity)
+    }
+}
+```
+
+If isFaceUp changed from false to true...
+(and ZStack was already on screen and we were explicitly animating)
+... the back would disappear instantly, Text would grow from nothing, front RR would fade in.
+
+Unlike .animation(), .transition() does not get redistributed to a container's content Views.
+So putting .transition() on the ZStack above only works if the entire ZStack came/went.
+(Group and ForEach do distribute .transition() to their content Views, however.)
+
+`.transition()` is just specifying what the ViewModifiers are.
+It doesn't cause any animation to occur.
+In other words, think of the word transition as a noun here, not a verb
+We are declaring what transition to use, not causing the transition to occur.
+
+Setting Animation Details for a Transition
+
+We can set an animation (curve/duration/etc). to use for a transition.
+AnyTransition structs have a `.animation(Animation)` of their own we can call.
+This sets the Animation parameters to use to animate the transition.
+e.g. `.transition(AnyTransition.opacity.animation(.linear(duration: 20)))`
+
+###### Matched Geometry Effect
+Sometimes we want a View to move from one place on screen to another.
+(And possibly resize along the way.)
+If the View is moving to a new place in its same container, this is no problem.
+"Moving" like this is just animating `.position` ViewModifier's arguments.
+(`.position` is what HStack, LazyVGrid, etc, use to position the Views inside them.)
+This kind of things happen automatically when we explicitly animate.
+
+But what if the View is "moving" from one container to a different container?
+This is not really possible.
+Instead, we need a View in the "source" position and a different one in the "destination" position.
+And then we must "match" their geometries up as one leaves the UI and the other arrives.
+So this is similar to .transition in that it is animating Views coming and going in the UI.
+It's just that it's particular to the case where a pair of Views arrivals/departures are synced.
+
+A great example of this would be "dealing cards off of a deck".
+The "deck" might well be its own View off to the side.
+When a card is "dealt" from the deck, it needs to fly from there to the game.
+But the deck and game's main View are not in the same LazyVGrid or anything.
+How do we handle this?
+
+We mark both Views using this ViewModifier...
+`.matchedGeometryEffect(id: Id, in: Namespace)` // ID type is a "don't care": Hashable
+Declare the Namespace as a private var in our View like this...
+`@Namespace private var myNamespace`
+
+Now we write our code so that only one of the two is ever included in the UI at the same time.
+We can do this with if-else in a ViewBuilder or maybe via ForEach.
+Now, when one of the pair leaves and the other arrives at the same time, their size and position will be synced up and animated.
+
+`.onAppear`
+Remember that animations work only on Views that are in Containers that are already on-screen
+How can we kick off an animation as soon as a View's Container arrives On-Screen?
+
+View has a nice function called `.onAppear { }`
+It executes a closure any time a View appears on screen (there's also .onDisappear { }).
+
+Use `.onAppear { }` on your container view to cause a change (usually in Model/ViewModel)
+that results in the appearance/animation of the View you want to be animated.
+Since, by definition, your container is on-screen when its own `.onAppear { }` is happening, it is a CTAAOS, so any animations for its children that are appearing can fire.
+Of course, you'd need to use withAnimation inside `.onAppear { }`.
+
+###### Shape and ViewModifier Animation
+All actual animation happens in Shapes and ViewModifiers.
+(Even transitions and matchedGeometryEffects are just "paired ViewModifiers".)
+So how do they actually do their animation?
+(along whatever the "curve" the animation uses)
+
+A Shape or ViewModifier lets the animation system know what information it wants piece-ified.
+(e.g. our Pie Shape is going to want to divide the Angles of the pie up into pieces.)
+
+During animation, the system tells the Shape/ViewModifier the current piece it should show.
+The Shape/ViewModifier makes sure its body draws appropiately at any "piece" value.
+
+The communication with the animation system happens (both ways) with a single var.
+This var is the only thing in the Animatable protocol.
+Shapes and ViewModifiers that want to be animatable must implement this protocol.
+
+`var animatableData: Type`
+
+`Type` is a "care a little bit"
+Type has to implement the protocol `VectorArithmetic`
+That's because it has to be able to be broken up into little pieces on an animation curve.
+
+`Type` is very often a floating point number (Float, Double, CGFloat)
+But there's another struct that implements `VectorArithmetic` called `AnimatablePair`
+`AnimatablePair` combines two `VectorArithmetics` into one `VectorArithmetic`
+Of course we can have `AnimatablePairs` of `AnimatablePair` so we can animate all we want
+
+Because it's communicating both ways, the animatableData is a read-write var.
+By `setting` of this var is the animation system telling the Shape/VM `which "piece" to draw`
+The `getting` of this var is the animation system getting the `start/end points` of an animation.
+
+Usually this is a computed var (though it does not have to be).
+We might well not want to use the name "animatableData" in our Shape/VM code
+(we want to use variable names that are more descriptive of what that data is to us).
+So the get/set very often just gets/sets some other var(s)
+(essentially exposing them to the animation system with a different name).
+
