@@ -21,12 +21,22 @@ class EmojiMemoryGame: ObservableObject {
 
     @Published private(set) var model = createMemoryGame()
 
+    var cards: [Card] {
+        model.cards
+    }
+    
+    // MARK: - Intent(s)
+
     func choose(_ card: Card) {
         model.choose(card)
     }
-
-    var cards: [Card] {
-        model.cards
+    
+    func shuffle() {
+        model.shuffle()
+    }
+    
+    func restart() {
+        model = EmojiMemoryGame.createMemoryGame()
     }
 
 }
